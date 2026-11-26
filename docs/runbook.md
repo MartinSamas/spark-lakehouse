@@ -84,6 +84,23 @@ docker compose exec spark-master spark-submit \
   --batch-date 2026-01-01
 ```
 
+### Running a Date Range Without Airflow (dev / backfill helper)
+
+`scripts/run_pipeline.py` runs Bronze and/or Silver for every date in a range, sequentially, in one SparkSession. Silver jobs run in dependency order: clients → projects → fx_rates → employees_scd2 → timesheets → invoices/expenses → crm_events → surveys.
+
+```bash
+# 14-day slice, Bronze + Silver (about 12 min on a laptop with local[4])
+docker compose exec spark-master python3 scripts/run_pipeline.py \
+  --start 2026-01-01 --end 2026-01-14 --master 'local[4]'
+
+# Re-run only some Silver jobs for one date
+docker compose exec spark-master python3 scripts/run_pipeline.py \
+  --start 2026-01-05 --end 2026-01-05 --layers silver \
+  --only silver.timesheets silver.invoices_expenses
+```
+
+Individual Silver jobs also accept `--batch-date` via `spark-submit`. `transform_crm_events.py` also takes `--strategy {broadcast,salted,sort_merge}` for the skew comparison.
+
 ### Running Unit Tests
 ```bash
 docker compose run --rm spark-master pytest -v
