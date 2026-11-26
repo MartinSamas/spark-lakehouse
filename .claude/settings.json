@@ -1,0 +1,8 @@
+{
+  "enabledPlugins": {
+    "lakehouse-dev-ops@spark-lakehouse-marketplace": true,
+    "spark-medallion-coach@spark-lakehouse-marketplace": true,
+    "dq-and-airflow-ops@spark-lakehouse-marketplace": true,
+    "lakehouse-reporting-ml@spark-lakehouse-marketplace": true
+  }
+}
