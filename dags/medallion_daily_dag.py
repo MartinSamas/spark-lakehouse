@@ -65,18 +65,21 @@ with DAG(
     )
 
     with TaskGroup(group_id="bronze_ingest") as bronze_ingest:
-        ingest_clients = BashOperator(
-            task_id="ingest_clients",
-            bash_command=(
-                'spark-submit --master "${SPARK_MASTER_URL:-spark://spark-master:7077}" '
-                '/opt/workspace/spark_jobs/bronze/ingest_clients.py --batch-date "{{ ds }}"'
-            ),
-        )
-        # TODO: Replace these placeholders with BashOperator / SparkSubmitOperator tasks.
-        ingest_reference_todo = EmptyOperator(task_id="ingest_reference_todo")
-        ingest_hr_todo = EmptyOperator(task_id="ingest_hr_todo")
-        ingest_finance_todo = EmptyOperator(task_id="ingest_finance_todo")
-        ingest_crm_surveys_todo = EmptyOperator(task_id="ingest_crm_surveys_todo")
+        # One parallel spark-submit per domain; each job is idempotent per `batch_date`.
+        for job in (
+            "ingest_clients",
+            "ingest_reference",
+            "ingest_hr",
+            "ingest_finance",
+            "ingest_crm_surveys",
+        ):
+            BashOperator(
+                task_id=job,
+                bash_command=(
+                    'spark-submit --master "${SPARK_MASTER_URL:-spark://spark-master:7077}" '
+                    f'/opt/workspace/spark_jobs/bronze/{job}.py --batch-date "{{{{ ds }}}}"'
+                ),
+            )
 
     # TODO: Wire Bronze DQ gate validating mandatory daily partitions & row counts.
     dq_bronze_gate = EmptyOperator(task_id="dq_bronze_gate")

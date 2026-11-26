@@ -1,14 +1,12 @@
-"""Bronze ingestion skeleton for HR domain (`employees` CSV and `timesheets` Parquet).
+"""Bronze ingestion for HR domain (`employees` CSV snapshots and `timesheets` Parquet).
 
-TODO (Student Deliverable):
-1. Read daily Hive-partitioned files for `batch_date`:
-   - `<landing_root>/employees/date=<batch_date>/part-000.csv`
-   - `<landing_root>/timesheets/date=<batch_date>/part-000.parquet`
-2. Preserve raw values with zero lossy transformations.
-3. Append `_batch_date`, `_ingested_at`, `_source_file`.
-4. Write idempotently partitioned by `_batch_date` (replace only `batch_date`
-   via `replaceWhere` or Delta `delete` + `append`) to `bronze/employees` and
-   `bronze/timesheets`.
+- `employees/date=<batch_date>/part-*.csv`: daily full snapshot, all columns kept as raw
+  strings (dates, booleans and rates are typed in Silver).
+- `timesheets/date=<batch_date>/part-*.parquet`: read with its native Parquet schema
+  (already typed upstream; no casting applied).
+
+Both are written partitioned by `_batch_date`, replacing only the target partition so
+re-runs are idempotent. Both daily partitions are mandatory: a missing file fails the job.
 
 Reference: `docs/STUDENT_ASSIGNMENT.md` (Sections 3.2, 4.2.A) and `docs/SANITY_CHECKS.md`.
 """
@@ -18,8 +16,43 @@ from __future__ import annotations
 import argparse
 
 from pyspark.sql import SparkSession
+from pyspark.sql.types import StringType, StructField, StructType
 
-from spark_jobs.common.spark_session import get_spark_session
+from spark_jobs.bronze._io import (
+    add_bronze_metadata,
+    read_daily_partition,
+    validate_batch_date,
+    write_daily_partition,
+)
+from spark_jobs.common.spark_session import (
+    get_lakehouse_root,
+    get_landing_root,
+    get_spark_session,
+    join_path,
+)
+
+EMPLOYEES_RAW_SCHEMA = StructType(
+    [
+        StructField(name, StringType(), nullable=True)
+        for name in (
+            "emp_id",
+            "full_name",
+            "department",
+            "role",
+            "seniority_level",
+            "hourly_rate_eur",
+            "hire_date",
+            "last_promotion_date",
+            "work_mode",
+            "distance_km",
+            "manager_id",
+            "is_active",
+            "termination_date",
+            "churn_type",
+            "snapshot_date",
+        )
+    ]
+)
 
 
 def run(
@@ -27,9 +60,36 @@ def run(
     batch_date: str,
     landing_root: str | None = None,
     lakehouse_root: str | None = None,
-) -> None:
-    """TODO: Implement Bronze ingestion for `employees` and `timesheets`."""
-    raise NotImplementedError("TODO: Implement Bronze HR ingestion for employees and timesheets.")
+) -> dict[str, int]:
+    """Ingest `employees` and `timesheets` for `batch_date`; return rows written per table."""
+    batch_date = validate_batch_date(batch_date)
+    landing = get_landing_root(landing_root)
+    lakehouse = get_lakehouse_root(lakehouse_root)
+
+    readers = {
+        "employees": lambda path: (
+            spark.read.option("header", "true")
+            .option("pathGlobFilter", "part-*.csv")
+            .schema(EMPLOYEES_RAW_SCHEMA)
+            .csv(path)
+        ),
+        "timesheets": lambda path: spark.read.option("pathGlobFilter", "part-*.parquet").parquet(
+            path
+        ),
+    }
+
+    counts: dict[str, int] = {}
+    for table, reader in readers.items():
+        raw_df = read_daily_partition(spark, landing, table, batch_date, reader)
+        bronze_df = add_bronze_metadata(raw_df, batch_date)
+        write_daily_partition(bronze_df, join_path(lakehouse, "bronze", table), batch_date)
+        counts[table] = (
+            spark.read.format("delta")
+            .load(join_path(lakehouse, "bronze", table))
+            .where(f"_batch_date = '{batch_date}'")
+            .count()
+        )
+    return counts
 
 
 def parse_args() -> argparse.Namespace:
@@ -44,6 +104,7 @@ if __name__ == "__main__":
     args = parse_args()
     spark = get_spark_session("bronze-ingest-hr")
     try:
-        run(spark, args.batch_date, args.landing_root, args.lakehouse_root)
+        counts = run(spark, args.batch_date, args.landing_root, args.lakehouse_root)
+        print(f"Bronze HR ingest batch_date={args.batch_date}: {counts}")
     finally:
         spark.stop()
