@@ -121,9 +121,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    entrypoint: ["/bin/bash", "-c"]
+    # Keep the image's /entrypoint so arbitrary AIRFLOW_UID values (e.g. macOS 501) get a passwd entry.
+    entrypoint: ["/usr/bin/dumb-init", "--", "/entrypoint"]
     command:
+      - bash
+      - -c
       - |
+        set -e
         airflow db migrate
         airflow users create \
           --username "${AIRFLOW_ADMIN_USER:-admin}" \

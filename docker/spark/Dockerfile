@@ -21,9 +21,9 @@ RUN curl -fsSL -o /opt/spark/jars/delta-spark_2.12-${DELTA_VERSION}.jar \
     curl -fsSL -o /opt/spark/jars/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar \
       "https://repo1.maven.org/maven2/com/amazonaws/aws-java-sdk-bundle/${AWS_SDK_VERSION}/aws-java-sdk-bundle-${AWS_SDK_VERSION}.jar"
 
-# Install delta-spark (--no-deps to keep /opt/spark as the single Spark/JAR source of truth) + pytest + boto3.
+# Install delta-spark (--no-deps to keep /opt/spark as the single Spark/JAR source of truth) + pytest + boto3 + pyarrow (parquet test fixtures).
 RUN pip3 install --no-cache-dir --no-deps "delta-spark==${DELTA_VERSION}" && \
-    pip3 install --no-cache-dir importlib-metadata "pytest>=8.0.0" "boto3>=1.35.0" && \
+    pip3 install --no-cache-dir importlib-metadata "pytest>=8.0.0" "boto3>=1.35.0" "pyarrow>=17.0.0" && \
     python3 -c "import glob, pathlib, site; sp = pathlib.Path(site.getsitepackages()[0]); paths = ['/opt/spark/python'] + sorted(glob.glob('/opt/spark/python/lib/py4j-*.zip')); (sp / 'spark.pth').write_text('\n'.join(paths) + '\n')"
 
 RUN mkdir -p /opt/spark/conf && \
